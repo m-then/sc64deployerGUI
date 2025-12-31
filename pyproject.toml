@@ -1,7 +1,12 @@
 [project]
 name = "sc64deployergui"
 version = "0.1.0"
-description = "Add your description here"
+description = "GUI for SC64 Deployer SD card operations"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "PyQt6>=6.6.0",
+]
+
+[project.scripts]
+sc64gui = "sc64gui.app:main"
