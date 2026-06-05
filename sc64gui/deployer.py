@@ -50,14 +50,11 @@ class SC64Deployer:
         if path != "/" and path.endswith("/"):
             path = path.rstrip("/")
         output = self._run_command("sd", "ls", path)
-        return self._parse_ls_output(output)
+        return self._parse_ls_output(output, path)
 
-    def _parse_ls_output(self, output: str) -> list[SDEntry]:
+    def _parse_ls_output(self, output: str, base_path: str = "/") -> list[SDEntry]:
         """Parse the output of 'sd ls' command."""
         entries = []
-        # Pattern: type size datetime | path
-        # Example: "d ---- 2025-08-01 15:13:48 | /Games"
-        # Example: "f 512K 2024-05-07 17:53:52 | sc64menu.n64"
         pattern = (
             r"^([df])\s+(\S+)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\|\s+(.+)$"
         )
@@ -70,7 +67,15 @@ class SC64Deployer:
                 entry_type = EntryType(match.group(1))
                 size_str = match.group(2)
                 modified = datetime.strptime(match.group(3), "%Y-%m-%d %H:%M:%S")
-                path = match.group(4)
+                raw_path = match.group(4)
+
+                if raw_path.startswith("/"):
+                    path = raw_path
+                elif base_path == "/":
+                    path = "/" + raw_path
+                else:
+                    path = base_path + "/" + raw_path
+
                 name = Path(path).name or path
 
                 entries.append(
