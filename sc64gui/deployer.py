@@ -1,5 +1,6 @@
 """SC64 Deployer CLI wrapper."""
 
+import posixpath
 import re
 import subprocess
 from datetime import datetime
@@ -69,12 +70,9 @@ class SC64Deployer:
                 modified = datetime.strptime(match.group(3), "%Y-%m-%d %H:%M:%S")
                 raw_path = match.group(4)
 
-                if raw_path.startswith("/"):
-                    path = raw_path
-                elif base_path == "/":
-                    path = "/" + raw_path
-                else:
-                    path = base_path + "/" + raw_path
+                # Names are relative to base_path even though the CLI prints
+                # directories with a leading slash (e.g. "/saves" inside /Games)
+                path = posixpath.join(base_path, raw_path.lstrip("/"))
 
                 name = Path(path).name or path
 
@@ -118,6 +116,17 @@ class SC64Deployer:
     def mkdir(self, path: str) -> None:
         """Create directory on SD card."""
         self._run_command("sd", "mkdir", path)
+
+    def ensure_directory(self, path: str) -> None:
+        """Create directory on SD card, tolerating one that already exists."""
+        try:
+            self.mkdir(path)
+        except SC64DeployerError as mkdir_error:
+            try:
+                self.stat(path)
+            except SC64DeployerError:
+                raise mkdir_error from None
+            # stat succeeded: the directory is already there
 
     def remove(self, path: str) -> None:
         """Remove file or empty directory."""

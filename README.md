@@ -18,6 +18,8 @@ The SC64 Deployer GUI wraps the `sc64deployer` command-line tool and provides a 
 
 ### File Operations
 - Upload files from local computer to SD card
+- Upload whole folders, including all subfolders (hidden files such as `.DS_Store` are skipped)
+- Drag and drop files and folders from Finder/Explorer onto the file list; drop onto a folder row to upload into that folder
 - Download files from SD card to local computer
 - Delete files and directories with confirmation dialogs
 - Rename files and directories
@@ -126,7 +128,7 @@ The `uv run` command automatically ensures the virtual environment is synchroniz
 **Background Workers (`sc64gui/workers.py`)**
 - QThread-based workers for asynchronous operations
 - ListDirectoryWorker for directory listing
-- UploadWorker for file uploads
+- UploadWorker for file and folder uploads
 - DownloadWorker for file downloads
 - DeleteWorker for file deletion
 - MkdirWorker for directory creation
@@ -160,18 +162,18 @@ The project uses Python type hints throughout and follows standard Python packag
 - `deployer.py`: CLI wrapper and parsing logic
 - `models.py`: Data structures
 - `workers.py`: Background thread implementations
+- `upload_plan.py`: Expands local files/folders into the directories to create and files to upload
 
 ## Limitations
 
 - Directory deletion requires directories to be empty
 - File operations are performed sequentially, not in parallel
-- No support for recursive directory operations beyond what the CLI provides
+- Folders can be uploaded recursively, but not downloaded or deleted recursively
 - Binary must be present in specified search paths
 
 ## Future Enhancements
 
 Potential improvements for future versions:
-- Drag and drop file upload support
 - Batch rename operations
 - File preview capabilities
 - Search functionality

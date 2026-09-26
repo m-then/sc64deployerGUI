@@ -3,6 +3,7 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from .deployer import SC64Deployer, SC64DeployerError
+from .upload_plan import UploadPlan
 
 
 class ListDirectoryWorker(QThread):
@@ -27,23 +28,29 @@ class ListDirectoryWorker(QThread):
 
 
 class UploadWorker(QThread):
-    """Worker thread for uploading files."""
+    """Worker thread for uploading files and folders."""
 
-    progress = pyqtSignal(int, int, str)  # current, total, current_file
+    progress = pyqtSignal(int, int, str)  # current, total, status message
     finished = pyqtSignal()
     error = pyqtSignal(str)
 
-    def __init__(self, deployer: SC64Deployer, files: list[tuple[str, str]]):
+    def __init__(self, deployer: SC64Deployer, plan: UploadPlan):
         super().__init__()
         self.deployer = deployer
-        self.files = files  # List of (local_path, remote_path) tuples
+        self.plan = plan
 
     def run(self):
         try:
-            total = len(self.files)
-            for i, (local, remote) in enumerate(self.files):
-                self.progress.emit(i, total, local)
+            total = self.plan.step_count
+            step = 0
+            for remote in self.plan.directories:
+                self.progress.emit(step, total, f"Creating folder: {remote}")
+                self.deployer.ensure_directory(remote)
+                step += 1
+            for local, remote in self.plan.files:
+                self.progress.emit(step, total, f"Uploading: {remote}")
                 self.deployer.upload(local, remote)
+                step += 1
             self.progress.emit(total, total, "")
             self.finished.emit()
         except SC64DeployerError as e:
