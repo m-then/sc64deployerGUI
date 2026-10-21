@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from .deployer import SC64Deployer
 from .models import SDEntry
+from .update_dialog import UpdateDialog
 from .upload_plan import UploadPlan, build_upload_plan
 from .workers import (
     DeleteWorker,
@@ -238,6 +239,7 @@ class MainWindow(QMainWindow):
         self.delete_action.setShortcut(QKeySequence.StandardKey.Delete)
         self.rename_action = QAction("Rename", self)
         self.rename_action.setShortcut(QKeySequence("F2"))
+        self.updates_action = QAction("Updates", self)
 
         toolbar.addAction(self.refresh_action)
         toolbar.addSeparator()
@@ -248,6 +250,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.mkdir_action)
         toolbar.addAction(self.delete_action)
         toolbar.addAction(self.rename_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.updates_action)
 
     def _connect_signals(self):
         # Toolbar actions
@@ -258,6 +262,7 @@ class MainWindow(QMainWindow):
         self.mkdir_action.triggered.connect(self._create_directory)
         self.delete_action.triggered.connect(self._delete_selected)
         self.rename_action.triggered.connect(self._rename_selected)
+        self.updates_action.triggered.connect(self._open_updates)
 
         # Navigation
         self.go_button.clicked.connect(self._navigate_to_path)
@@ -280,6 +285,7 @@ class MainWindow(QMainWindow):
         self.mkdir_action.setEnabled(enabled)
         self.delete_action.setEnabled(enabled)
         self.rename_action.setEnabled(enabled)
+        self.updates_action.setEnabled(enabled)
         self.file_browser.setEnabled(enabled)
         self.path_edit.setEnabled(enabled)
         self.go_button.setEnabled(enabled)
@@ -605,6 +611,13 @@ class MainWindow(QMainWindow):
         """Handle rename error."""
         self._show_error("Rename failed", error_msg)
         self._cleanup_worker()
+
+    def _open_updates(self):
+        """Check for and install menu and firmware updates."""
+        dialog = UpdateDialog(self.deployer, self)
+        dialog.exec()
+        if dialog.changed:
+            self._refresh_directory()
 
 
 def main():

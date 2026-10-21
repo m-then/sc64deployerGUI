@@ -25,6 +25,14 @@ The SC64 Deployer GUI wraps the `sc64deployer` command-line tool and provides a 
 - Rename files and directories
 - Create new directories
 
+### Updates
+- The Updates button compares the menu and firmware on the SC64 with the newest releases on GitHub ([N64FlashcartMenu](https://github.com/n64brew/N64FlashcartMenu/releases) and [SummerCart64](https://github.com/Polprzewodnikowy/SummerCart64/releases))
+- Menu update: downloads `sc64menu.n64`, backs up the current menu, copies the new one to the SD card root and reads it back to check the copy
+- Firmware update: downloads the firmware and the matching `sc64deployer`, backs up the current firmware and program, flashes the firmware, then replaces `sc64deployer`
+- Downloads are checked against the SHA-256 checksums GitHub publishes for release files
+- Backups are saved to `backups/` in the project directory (ignored by git)
+- Typical update: Updates → Update → Yes → OK
+
 ### Navigation
 - Path input field for direct navigation
 - Up button to navigate to parent directory
@@ -133,6 +141,13 @@ The `uv run` command automatically ensures the virtual environment is synchroniz
 - DeleteWorker for file deletion
 - MkdirWorker for directory creation
 - RenameWorker for renaming operations
+- CheckUpdatesWorker and InstallUpdateWorker for menu and firmware updates
+
+**Updates (`sc64gui/updates.py`, `sc64gui/update_dialog.py`)**
+- Fetches releases from the GitHub API and downloads release files
+- Recognizes the installed menu by matching its SHA-256 against release checksums
+- Install steps for the menu and the firmware, with backups
+- UpdateDialog showing installed and latest versions
 
 ### Operation Flow
 
@@ -163,6 +178,8 @@ The project uses Python type hints throughout and follows standard Python packag
 - `models.py`: Data structures
 - `workers.py`: Background thread implementations
 - `upload_plan.py`: Expands local files/folders into the directories to create and files to upload
+- `updates.py`: Checks GitHub for new menu and firmware releases and installs them
+- `update_dialog.py`: Updates dialog
 
 ## Limitations
 
@@ -170,6 +187,9 @@ The project uses Python type hints throughout and follows standard Python packag
 - File operations are performed sequentially, not in parallel
 - Folders can be uploaded recursively, but not downloaded or deleted recursively
 - Binary must be present in specified search paths
+- Firmware updates from the GUI work on macOS and Linux only
+- The installed menu version is only recognized for official release builds; anything else shows as "Unknown build"
+- `sc64deployer` is tracked in git, so it shows up as changed after a firmware update
 
 ## Future Enhancements
 

@@ -23,7 +23,9 @@ class SC64Deployer:
         if not self.binary_path.exists():
             raise FileNotFoundError(f"sc64deployer not found at {binary_path}")
 
-    def _run_command(self, *args: str, timeout: float = 30.0) -> str:
+    def _run_command(
+        self, *args: str, timeout: float = 30.0, input: str | None = None
+    ) -> str:
         """Execute sc64deployer command and return stdout."""
         cmd = [str(self.binary_path), *args]
         try:
@@ -33,6 +35,7 @@ class SC64Deployer:
                 text=True,
                 timeout=timeout,
                 check=True,
+                input=input,
             )
             return result.stdout
         except subprocess.CalledProcessError as e:
@@ -139,3 +142,33 @@ class SC64Deployer:
     def stat(self, path: str) -> str:
         """Get file/directory status."""
         return self._run_command("sd", "stat", path)
+
+    def version(self) -> str:
+        """Version of the sc64deployer program itself, e.g. "2.20.2"."""
+        return self._run_command("--version").split()[-1]
+
+    def firmware_version(self) -> str:
+        """Firmware version running on the connected SC64, e.g. "v2.20.2"."""
+        output = self._run_command("info")
+        match = re.search(r"Firmware version:\s+(\S+)", output)
+        if not match:
+            raise SC64DeployerError("Could not read the firmware version from 'info'")
+        return match.group(1)
+
+    def verify_firmware_file(self, path: str) -> str:
+        """Check a firmware file is valid and return its metadata."""
+        return self._run_command("firmware", "info", path)
+
+    def backup_firmware(self, path: str) -> None:
+        """Save the firmware currently on the SC64 to a file."""
+        self._run_command("firmware", "backup", path, timeout=300.0)
+
+    def update_firmware(self, path: str) -> None:
+        """Flash a firmware file onto the SC64."""
+        # The CLI asks "Continue with update process? [y/N]" and exits with
+        # success even when the answer is no, so answer it and check the result
+        output = self._run_command(
+            "firmware", "update", path, timeout=600.0, input="y\n"
+        )
+        if "aborted" in output:
+            raise SC64DeployerError("Firmware update was aborted by sc64deployer")

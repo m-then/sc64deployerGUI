@@ -1,8 +1,13 @@
 """Background workers for SC64 operations."""
 
+import tempfile
+from collections.abc import Callable
+from pathlib import Path
+
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from .deployer import SC64Deployer, SC64DeployerError
+from .updates import Report, UpdateError, check_for_updates
 from .upload_plan import UploadPlan
 
 
@@ -149,6 +154,47 @@ class RenameWorker(QThread):
             self.deployer.rename(self.src, self.dst)
             self.finished.emit()
         except SC64DeployerError as e:
+            self.error.emit(str(e))
+        except Exception as e:
+            self.error.emit(f"Unexpected error: {e}")
+
+
+class CheckUpdatesWorker(QThread):
+    """Worker thread comparing the SC64 against the latest releases."""
+
+    finished = pyqtSignal(object)  # UpdateStatus
+    error = pyqtSignal(str)
+
+    def __init__(self, deployer: SC64Deployer):
+        super().__init__()
+        self.deployer = deployer
+
+    def run(self):
+        try:
+            with tempfile.TemporaryDirectory() as work_dir:
+                status = check_for_updates(self.deployer, Path(work_dir))
+            self.finished.emit(status)
+        except Exception as e:
+            self.error.emit(f"Unexpected error: {e}")
+
+
+class InstallUpdateWorker(QThread):
+    """Worker thread running one of the install functions from updates.py."""
+
+    progress = pyqtSignal(str)  # Status message
+    finished = pyqtSignal(list)  # Backup files written
+    error = pyqtSignal(str)
+
+    def __init__(self, install: Callable[[Path, Report], list[Path]]):
+        super().__init__()
+        self.install = install  # Called with a scratch directory and a reporter
+
+    def run(self):
+        try:
+            with tempfile.TemporaryDirectory() as work_dir:
+                backups = self.install(Path(work_dir), self.progress.emit)
+            self.finished.emit(backups)
+        except (UpdateError, SC64DeployerError) as e:
             self.error.emit(str(e))
         except Exception as e:
             self.error.emit(f"Unexpected error: {e}")

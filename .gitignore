@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Menus, firmware and sc64deployer copies saved before updates
+backups/
