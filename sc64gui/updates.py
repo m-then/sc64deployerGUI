@@ -1,6 +1,7 @@
 """Find, download and install SC64 menu and firmware releases from GitHub."""
 
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -11,15 +12,22 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from .deployer import SC64Deployer, SC64DeployerError
 
-MENU_REPO = "n64brew/N64FlashcartMenu"
+MENU_REPO = "n64brew/N64FlashcartMenu"  # The standard menu, always offered
 MENU_ASSET = "sc64menu.n64"
 MENU_SD_PATH = "/sc64menu.n64"
+
+# Other menus whose releases include an sc64menu.n64 file. Used until the list
+# is changed with Add Menu or Remove in the Updates window
+DEFAULT_EXTRA_MENUS = ["Kerillian0/SummerStation64"]
+
+# The extra menus as changed in the Updates window
+MENUS_FILE = Path(__file__).parent.parent / "menus.json"
 
 FIRMWARE_REPO = "Polprzewodnikowy/SummerCart64"
 
@@ -38,9 +46,14 @@ class UpdateError(Exception):
 
 
 def parse_version(text: str) -> tuple[int, ...] | None:
-    """Pull the version out of tags like "V0.3.5" or "v2.20.2"."""
-    match = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
-    return tuple(int(part) for part in match.groups()) if match else None
+    """Pull the version out of tags like "V0.3.5", "v2.20.2" or "v0.1"."""
+    match = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", text)
+    return tuple(int(part or 0) for part in match.groups()) if match else None
+
+
+def menu_name(repo: str) -> str:
+    """Name a menu is shown by, e.g. "SummerStation64" for its repo."""
+    return repo.split("/")[-1]
 
 
 @dataclass
@@ -82,9 +95,80 @@ class ComponentStatus:
 
 
 @dataclass
+class MenuChoice:
+    """A menu that can go on the SD card, released from one GitHub repo."""
+
+    repo: str  # "owner/name"
+    # Releases that include MENU_ASSET, newest first
+    releases: list[Release] = field(default_factory=list)
+    installed: Release | None = None  # The release on the SD card, if it is this menu
+    error: str | None = None  # Why the releases could not be read
+
+    @property
+    def name(self) -> str:
+        return menu_name(self.repo)
+
+    @property
+    def latest(self) -> Release | None:
+        return self.releases[0] if self.releases else None
+
+    @property
+    def update_available(self) -> bool:
+        return bool(self.installed and self.installed.version < self.latest.version)
+
+
+@dataclass
+class MenuStatus:
+    """Which menu is on the SD card, and the menus that can replace it."""
+
+    installed: str  # For display, e.g. "SummerStation64 v0.1" or "Not installed"
+    choices: list[MenuChoice]
+    error: str | None = None  # Set when the SD card could not be read
+
+    @property
+    def installed_choice(self) -> MenuChoice | None:
+        return next((c for c in self.choices if c.installed), None)
+
+
+@dataclass
 class UpdateStatus:
-    menu: ComponentStatus
+    menu: MenuStatus
     firmware: ComponentStatus
+
+
+# The list of extra menus
+
+_REPO_PATTERN = re.compile(r"[\w.-]+/[\w.-]+")
+
+
+def load_extra_menus() -> list[str]:
+    """Repos of the menus offered besides the standard one."""
+    try:
+        repos = json.loads(MENUS_FILE.read_text())
+    except (OSError, ValueError):  # Not changed yet, or unreadable
+        return list(DEFAULT_EXTRA_MENUS)
+    if not isinstance(repos, list):
+        return list(DEFAULT_EXTRA_MENUS)
+    return [r for r in repos if isinstance(r, str) and _REPO_PATTERN.fullmatch(r)]
+
+
+def save_extra_menus(repos: list[str]) -> None:
+    MENUS_FILE.write_text(json.dumps(repos, indent=2) + "\n")
+
+
+def parse_repo(text: str) -> str:
+    """Turn "owner/name" or a github.com link into "owner/name"."""
+    text = text.strip()
+    match = re.fullmatch(
+        r"(?:https?://)?(?:www\.)?github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?(?:[/?#].*)?",
+        text,
+    ) or re.fullmatch(r"([\w.-]+)/([\w.-]+)", text)
+    if not match:
+        raise UpdateError(
+            f'"{text}" is not a GitHub repo. Enter it as owner/name, '
+            f"for example {DEFAULT_EXTRA_MENUS[0]}."
+        )
+    return f"{match[1]}/{match[2]}"
 
 
 # GitHub access
@@ -107,9 +191,28 @@ def fetch_releases(repo: str) -> list[Release]:
     try:
         with _open(url, timeout=30.0) as response:
             data = json.load(response)
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+    except urllib.error.HTTPError as e:
+        if e.code == 404:  # Also what GitHub answers for private repos
+            raise UpdateError(
+                f"{repo} was not found on GitHub. "
+                "It may have been deleted or made private."
+            ) from e
+        raise UpdateError(f"Could not get releases of {repo} from GitHub: {e}") from e
+    except (OSError, ValueError, http.client.HTTPException) as e:
         raise UpdateError(f"Could not get releases of {repo} from GitHub: {e}") from e
 
+    try:
+        releases = _parse_releases(data)
+    except (KeyError, TypeError, AttributeError) as e:
+        raise UpdateError(f"GitHub sent an unexpected reply for {repo}") from e
+
+    if not releases:
+        raise UpdateError(f"No releases found for {repo}")
+    releases.sort(key=lambda r: r.version, reverse=True)
+    return releases
+
+
+def _parse_releases(data) -> list[Release]:
     releases = []
     for item in data:
         # Skips drafts, pre-releases and rolling tags without a version number
@@ -122,10 +225,6 @@ def fetch_releases(repo: str) -> list[Release]:
             for a in item["assets"]
         }
         releases.append(Release(item["tag_name"], item["html_url"], assets))
-
-    if not releases:
-        raise UpdateError(f"No releases found for {repo}")
-    releases.sort(key=lambda r: r.version, reverse=True)
     return releases
 
 
@@ -169,10 +268,12 @@ def deployer_asset_name(tag: str) -> str | None:
 # Checking
 
 
-def check_for_updates(deployer: SC64Deployer, work_dir: Path) -> UpdateStatus:
+def check_for_updates(
+    deployer: SC64Deployer, menu_repos: list[str], work_dir: Path
+) -> UpdateStatus:
     """Compare what is on the SC64 with the newest releases on GitHub."""
     return UpdateStatus(
-        menu=_checked(lambda: check_menu(deployer, work_dir)),
+        menu=check_menu(deployer, menu_repos, work_dir),
         firmware=_checked(lambda: check_firmware(deployer)),
     )
 
@@ -185,29 +286,46 @@ def _checked(check: Callable[[], ComponentStatus]) -> ComponentStatus:
         return ComponentStatus("?", error=str(e))
 
 
-def check_menu(deployer: SC64Deployer, work_dir: Path) -> ComponentStatus:
-    releases = fetch_releases(MENU_REPO)
-    latest = releases[0]
-    if not _menu_on_sd_card(deployer):
-        return ComponentStatus("Not installed", latest, update_available=True)
+def check_menu(deployer: SC64Deployer, repos: list[str], work_dir: Path) -> MenuStatus:
+    # Each repo is checked on its own, so one that is gone or private only
+    # affects its own choice
+    choices = [check_menu_choice(repo) for repo in repos]
+    try:
+        digest = _installed_menu_sha256(deployer, work_dir)
+    except (SC64DeployerError, OSError) as e:
+        return MenuStatus("?", choices, error=str(e))
+    if digest is None:
+        return MenuStatus("Not installed", choices)
 
     # The menu has no reliable version field, so match it to a release by hash
+    for choice in choices:
+        choice.installed = next(
+            (r for r in choice.releases if r.assets[MENU_ASSET].sha256 == digest),
+            None,
+        )
+        if choice.installed:
+            return MenuStatus(f"{choice.name} {choice.installed.tag}", choices)
+    if any(c.error for c in choices):
+        return MenuStatus("?", choices)  # It may be from a repo that failed
+    return MenuStatus("Unknown build", choices)
+
+
+def check_menu_choice(repo: str) -> MenuChoice:
+    try:
+        releases = [r for r in fetch_releases(repo) if MENU_ASSET in r.assets]
+    except UpdateError as e:
+        return MenuChoice(repo, error=str(e))
+    if not releases:
+        return MenuChoice(repo, error=f"No release of {repo} has a {MENU_ASSET} file")
+    return MenuChoice(repo, releases)
+
+
+def _installed_menu_sha256(deployer: SC64Deployer, work_dir: Path) -> str | None:
+    if not _menu_on_sd_card(deployer):
+        return None
     installed = work_dir / "installed-menu.n64"
     deployer.download(MENU_SD_PATH, str(installed))
-    digest = file_sha256(installed)
-    match = next(
-        (
-            r
-            for r in releases
-            if MENU_ASSET in r.assets and r.assets[MENU_ASSET].sha256 == digest
-        ),
-        None,
-    )
-    if match is None:
-        return ComponentStatus("Unknown build", latest, update_available=True)
-    return ComponentStatus(
-        match.tag, latest, update_available=match.version < latest.version
-    )
+    return file_sha256(installed)
 
 
 def check_firmware(deployer: SC64Deployer) -> ComponentStatus:
@@ -238,17 +356,19 @@ def _menu_on_sd_card(deployer: SC64Deployer) -> bool:
 
 def install_menu(
     deployer: SC64Deployer,
-    release: Release,
+    choice: MenuChoice,
     installed: str,
     work_dir: Path,
     report: Report,
 ) -> list[Path]:
-    """Put the menu from a release on the SD card; returns backups made."""
-    report(f"Downloading menu {release.tag}...")
+    """Put the latest release of a menu on the SD card; returns backups made."""
+    release = choice.latest
+    title = f"{choice.name} {release.tag}"
+    report(f"Downloading {title}...")
     new_menu = download(release.asset(MENU_ASSET), work_dir / MENU_ASSET)
     with open(new_menu, "rb") as f:
         if f.read(4) != N64_ROM_MAGIC:
-            raise UpdateError(f"{MENU_ASSET} from {release.tag} is not an N64 ROM")
+            raise UpdateError(f"{MENU_ASSET} from {title} is not an N64 ROM")
 
     backups = []
     if _menu_on_sd_card(deployer):
@@ -257,7 +377,7 @@ def install_menu(
         deployer.download(MENU_SD_PATH, str(backup))
         backups.append(backup)
 
-    report(f"Copying menu {release.tag} to the SD card...")
+    report(f"Copying {title} to the SD card...")
     deployer.upload(str(new_menu), MENU_SD_PATH)
 
     report("Checking the copy on the SD card...")
@@ -373,7 +493,7 @@ def _backup_path(name: str) -> Path:
 
 
 def _label(text: str) -> str:
-    return re.sub(r"[^\w.-]+", "-", text).strip("-")
+    return re.sub(r"[^\w.-]+", "-", text).strip("-") or "unknown"
 
 
 def _stamp() -> str:

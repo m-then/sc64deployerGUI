@@ -165,14 +165,17 @@ class CheckUpdatesWorker(QThread):
     finished = pyqtSignal(object)  # UpdateStatus
     error = pyqtSignal(str)
 
-    def __init__(self, deployer: SC64Deployer):
+    def __init__(self, deployer: SC64Deployer, menu_repos: list[str]):
         super().__init__()
         self.deployer = deployer
+        self.menu_repos = menu_repos
 
     def run(self):
         try:
             with tempfile.TemporaryDirectory() as work_dir:
-                status = check_for_updates(self.deployer, Path(work_dir))
+                status = check_for_updates(
+                    self.deployer, self.menu_repos, Path(work_dir)
+                )
             self.finished.emit(status)
         except Exception as e:
             self.error.emit(f"Unexpected error: {e}")

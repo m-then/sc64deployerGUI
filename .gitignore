@@ -11,3 +11,6 @@ wheels/
 
 # Menus, firmware and sc64deployer copies saved before updates
 backups/
+
+# The list of extra menus, once changed in the Updates window
+menus.json

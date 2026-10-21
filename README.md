@@ -28,6 +28,11 @@ The SC64 Deployer GUI wraps the `sc64deployer` command-line tool and provides a 
 ### Updates
 - The Updates button compares the menu and firmware on the SC64 with the newest releases on GitHub ([N64FlashcartMenu](https://github.com/n64brew/N64FlashcartMenu/releases) and [SummerCart64](https://github.com/Polprzewodnikowy/SummerCart64/releases))
 - Menu update: downloads `sc64menu.n64`, backs up the current menu, copies the new one to the SD card root and reads it back to check the copy
+- Other menus: besides the standard N64FlashcartMenu, the window lists menus from other GitHub repos that publish `sc64menu.n64` in their releases, starting with [SummerStation64](https://github.com/Kerillian0/SummerStation64/releases) (its Art Edition)
+  - The window shows which menu is on the SD card; **Switch** installs another one, and **Switch** on N64FlashcartMenu goes back to the standard menu
+  - **Remove** takes a menu off the list, **Add Menu...** puts one on (as `owner/name` or a github.com link). The list is saved to `menus.json` in the project directory (ignored by git); delete the file to go back to the default list
+  - Each repo is checked on its own: one that is deleted, private or unreachable shows `?` and an error line, and the other menus and the firmware still work
+  - N64FlashcartMenu is always listed and can't be removed, so there is always a menu to go back to
 - Firmware update: downloads the firmware and the matching `sc64deployer`, backs up the current firmware and program, flashes the firmware, then replaces `sc64deployer`
 - Downloads are checked against the SHA-256 checksums GitHub publishes for release files
 - Backups are saved to `backups/` in the project directory (ignored by git)
